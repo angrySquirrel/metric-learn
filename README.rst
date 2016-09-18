@@ -1,4 +1,4 @@
-|Travis-CI Build Status| |License| |PyPI version| |PyPI downloads|
+|Travis-CI Build Status| |License| |PyPI version|
 
 metric-learn
 =============
@@ -17,7 +17,7 @@ Metric Learning algorithms in Python.
 
 **Dependencies**
 
--  Python 2.6+
+-  Python 2.7+, 3.4+
 -  numpy, scipy, scikit-learn
 -  (for running the examples only: matplotlib)
 
@@ -67,5 +67,4 @@ more complete.
    :target: http://badges.mit-license.org
 .. |PyPI version| image:: https://badge.fury.io/py/metric-learn.svg
    :target: http://badge.fury.io/py/metric-learn
-.. |PyPI downloads| image:: https://img.shields.io/pypi/dm/metric-learn.svg
-   :target: https://pypi.python.org/pypi/metric-learn/
+

@@ -3,18 +3,17 @@ Sandwich demo based on code from http://nbviewer.ipython.org/6576096
 """
 
 import numpy as np
-from numpy.random import normal
-import matplotlib.pyplot as pyplot
+from matplotlib import pyplot as plt
 from sklearn.metrics import pairwise_distances
 from sklearn.neighbors import NearestNeighbors
 
-from metric_learn import ITML, LMNN, LSML, SDML
+from metric_learn import LMNN, ITML_Supervised, LSML_Supervised, SDML_Supervised
 
 
 def sandwich_demo():
   x, y = sandwich_data()
   knn = nearest_neighbors(x, k=2)
-  ax = pyplot.subplot(3, 1, 1)  # take the whole top row
+  ax = plt.subplot(3, 1, 1)  # take the whole top row
   plot_sandwich_data(x, y, ax)
   plot_neighborhood_graph(x, knn, y, ax)
   ax.set_title('input space')
@@ -22,35 +21,33 @@ def sandwich_demo():
   ax.set_xticks([])
   ax.set_yticks([])
 
-  num_constraints = 60
   mls = [
-      (LMNN(), (x, y)),
-      (ITML(), (x, ITML.prepare_constraints(y, len(x), num_constraints))),
-      (SDML(), (x, SDML.prepare_constraints(y, len(x), num_constraints))),
-      (LSML(), (x, LSML.prepare_constraints(y, num_constraints)))
+      LMNN(),
+      ITML_Supervised(num_constraints=200),
+      SDML_Supervised(num_constraints=200),
+      LSML_Supervised(num_constraints=200),
   ]
 
-  for ax_num, (ml,args) in zip(xrange(3,7), mls):
-    ml.fit(*args)
+  for ax_num, ml in enumerate(mls, start=3):
+    ml.fit(x, y)
     tx = ml.transform()
     ml_knn = nearest_neighbors(tx, k=2)
-    ax = pyplot.subplot(3,2,ax_num)
-    plot_sandwich_data(tx, y, ax)
-    plot_neighborhood_graph(tx, ml_knn, y, ax)
-    ax.set_title('%s space' % ml.__class__.__name__)
+    ax = plt.subplot(3, 2, ax_num)
+    plot_sandwich_data(tx, y, axis=ax)
+    plot_neighborhood_graph(tx, ml_knn, y, axis=ax)
+    ax.set_title(ml.__class__.__name__)
     ax.set_xticks([])
     ax.set_yticks([])
-  pyplot.show()
+  plt.show()
 
 
 # TODO: use this somewhere
 def visualize_class_separation(X, labels):
-  _, (ax1,ax2) = pyplot.subplots(ncols=2)
+  _, (ax1,ax2) = plt.subplots(ncols=2)
   label_order = np.argsort(labels)
   ax1.imshow(pairwise_distances(X[label_order]), interpolation='nearest')
   ax2.imshow(pairwise_distances(labels[label_order,None]),
              interpolation='nearest')
-  pyplot.show()
 
 
 def nearest_neighbors(X, k=5):
@@ -66,27 +63,30 @@ def sandwich_data():
   num_points = 9
   # distance between layers, the points of each class are in a layer
   dist = 0.7
-  # memory pre-allocation
-  x = np.zeros((num_classes*num_points, 2))
-  y = np.zeros(num_classes*num_points, dtype=int)
-  for i,j in zip(xrange(num_classes), xrange(-num_classes//2,num_classes//2+1)):
-    for k,l in zip(xrange(num_points), xrange(-num_points//2,num_points//2+1)):
-      x[i*num_points + k, :] = np.array([normal(l, 0.1), normal(dist*j, 0.1)])
-    y[i*num_points:i*num_points + num_points] = i
-  return x,y
+
+  data = np.zeros((num_classes, num_points, 2), dtype=float)
+  labels = np.zeros((num_classes, num_points), dtype=int)
+
+  x_centers = np.arange(num_points, dtype=float) - num_points / 2
+  y_centers = dist * (np.arange(num_classes, dtype=float) - num_classes / 2)
+  for i, yc in enumerate(y_centers):
+    for k, xc in enumerate(x_centers):
+      data[i, k, 0] = np.random.normal(xc, 0.1)
+      data[i, k, 1] = np.random.normal(yc, 0.1)
+    labels[i,:] = i
+  return data.reshape((-1, 2)), labels.ravel()
 
 
-def plot_sandwich_data(x, y, axis=pyplot, cols='rbgmky'):
-  for idx,val in enumerate(np.unique(y)):
+def plot_sandwich_data(x, y, axis=plt, colors='rbgmky'):
+  for idx, val in enumerate(np.unique(y)):
     xi = x[y==val]
-    axis.scatter(xi[:,0], xi[:,1], s=50, facecolors='none',edgecolors=cols[idx])
+    axis.scatter(*xi.T, s=50, facecolors='none', edgecolors=colors[idx])
 
 
-def plot_neighborhood_graph(x, nn, y, axis=pyplot, cols='rbgmky'):
-  for i in xrange(x.shape[0]):
-    xs = [x[i,0], x[nn[i,1], 0]]
-    ys = [x[i,1], x[nn[i,1], 1]]
-    axis.plot(xs, ys, cols[y[i]])
+def plot_neighborhood_graph(x, nn, y, axis=plt, colors='rbgmky'):
+  for i, a in enumerate(x):
+    b = x[nn[i,1]]
+    axis.plot((a[0], b[0]), (a[1], b[1]), colors[y[i]])
 
 
 if __name__ == '__main__':

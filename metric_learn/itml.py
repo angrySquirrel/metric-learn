@@ -9,18 +9,23 @@ This algorithm can handle a wide variety of constraints and can optionally
 incorporate a prior on the distance function.
 Unlike some other methods, ITML does not rely on an eigenvalue computation
 or semi-definite programming.
+
+Adapted from Matlab code at http://www.cs.utexas.edu/users/pjain/itml/
 """
 
 from __future__ import print_function, absolute_import
 import numpy as np
 from six.moves import xrange
 from sklearn.metrics import pairwise_distances
+
 from .base_metric import BaseMetricLearner
+from .constraints import Constraints
 
 
 class ITML(BaseMetricLearner):
   """Information Theoretic Metric Learning (ITML)"""
-  def __init__(self, gamma=1., max_iters=1000, convergence_threshold=1e-3):
+  def __init__(self, gamma=1., max_iters=1000, convergence_threshold=1e-3,
+               verbose=False):
     """Initialize the learner.
 
     Parameters
@@ -29,10 +34,15 @@ class ITML(BaseMetricLearner):
         value for slack variables
     max_iters : int, optional
     convergence_threshold : float, optional
+    verbose : bool, optional
+        if True, prints information while learning
     """
-    self.gamma = gamma
-    self.max_iters = max_iters
-    self.convergence_threshold = convergence_threshold
+    self.params = {
+      'gamma': gamma,
+      'max_iters': max_iters,
+      'convergence_threshold': convergence_threshold,
+      'verbose': verbose,
+    }
 
   def _process_inputs(self, X, constraints, bounds, A0):
     self.X = X
@@ -55,22 +65,24 @@ class ITML(BaseMetricLearner):
       self.A = A0
     return a,b,c,d
 
-  def fit(self, X, constraints, bounds=None, A0=None, verbose=False):
+  def fit(self, X, constraints, bounds=None, A0=None):
     """Learn the ITML model.
 
     Parameters
     ----------
     X : (n x d) data matrix
         each row corresponds to a single instance
-    constraints : tuple of arrays
+    constraints : 4-tuple of arrays
         (a,b,c,d) indices into X, such that d(X[a],X[b]) < d(X[c],X[d])
     bounds : list (pos,neg) pairs, optional
         bounds on similarity, s.t. d(X[a],X[b]) < pos and d(X[c],X[d]) > neg
     A0 : (d x d) matrix, optional
         initial regularization matrix, defaults to identity
     """
+    verbose = self.params['verbose']
     a,b,c,d = self._process_inputs(X, constraints, bounds, A0)
-    gamma = self.gamma
+    gamma = self.params['gamma']
+    conv_thresh = self.params['convergence_threshold']
     num_pos = len(a)
     num_neg = len(c)
     _lambda = np.zeros(num_pos + num_neg)
@@ -80,7 +92,7 @@ class ITML(BaseMetricLearner):
     neg_bhat = np.zeros(num_neg) + self.bounds[1]
     A = self.A
 
-    for it in xrange(self.max_iters):
+    for it in xrange(self.params['max_iters']):
       # update positives
       vv = self.X[a] - self.X[b]
       for i,v in enumerate(vv):
@@ -106,7 +118,7 @@ class ITML(BaseMetricLearner):
         conv = np.inf
         break
       conv = np.abs(lambdaold - _lambda).sum() / normsum
-      if conv < self.convergence_threshold:
+      if conv < conv_thresh:
         break
       lambdaold = _lambda.copy()
       if verbose:
@@ -118,14 +130,6 @@ class ITML(BaseMetricLearner):
   def metric(self):
     return self.A
 
-  @classmethod
-  def prepare_constraints(self, labels, num_points, num_constraints):
-    ac,bd = np.random.randint(num_points, size=(2,num_constraints))
-    pos = labels[ac] == labels[bd]
-    a,c = ac[pos], ac[~pos]
-    b,d = bd[pos], bd[~pos]
-    return a,b,c,d
-
 # hack around lack of axis kwarg in older numpy versions
 try:
   np.linalg.norm([[4]], axis=1)
@@ -135,3 +139,48 @@ except TypeError:
 else:
   def _vector_norm(X):
     return np.linalg.norm(X, axis=1)
+
+
+class ITML_Supervised(ITML):
+  """Information Theoretic Metric Learning (ITML)"""
+  def __init__(self, gamma=1., max_iters=1000, convergence_threshold=1e-3,
+               num_labeled=np.inf, num_constraints=None, bounds=None, A0=None,
+               verbose=False):
+    """Initialize the learner.
+
+    Parameters
+    ----------
+    gamma : float, optional
+        value for slack variables
+    max_iters : int, optional
+    convergence_threshold : float, optional
+    num_labeled : int, optional
+        number of labels to preserve for training
+    num_constraints: int, optional
+        number of constraints to generate
+    verbose : bool, optional
+        if True, prints information while learning
+    """
+    ITML.__init__(self, gamma=gamma, max_iters=max_iters,
+                  convergence_threshold=convergence_threshold, verbose=verbose)
+    self.params.update(num_labeled=num_labeled, num_constraints=num_constraints,
+                       bounds=bounds, A0=A0)
+
+  def fit(self, X, labels):
+    """Create constraints from labels and learn the ITML model.
+    Needs num_constraints specified in constructor.
+
+    Parameters
+    ----------
+    X : (n x d) data matrix
+        each row corresponds to a single instance
+    labels : (n) data labels
+    """
+    num_constraints = self.params['num_constraints']
+    if num_constraints is None:
+      num_classes = np.unique(labels)
+      num_constraints = 20*(len(num_classes))**2
+
+    c = Constraints.random_subset(labels, self.params['num_labeled'])
+    return ITML.fit(self, X, c.positive_negative_pairs(num_constraints),
+                    bounds=self.params['bounds'], A0=self.params['A0'])

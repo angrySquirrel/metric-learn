@@ -12,9 +12,10 @@ subsets of points that are known to belong to the same class.
 
 from __future__ import absolute_import
 import numpy as np
-import random
 from six.moves import xrange
+
 from .base_metric import BaseMetricLearner
+from .constraints import Constraints
 
 
 class RCA(BaseMetricLearner):
@@ -27,7 +28,9 @@ class RCA(BaseMetricLearner):
     dim : int, optional
         embedding dimension (default: original dimension of data)
     """
-    self.dim = dim
+    self.params = {
+      'dim': dim,
+    }
 
   def transformer(self):
     return self._transformer
@@ -37,9 +40,9 @@ class RCA(BaseMetricLearner):
     self.X = X
     n, d = X.shape
 
-    if self.dim is None:
-      self.dim = d
-    elif not 0 < self.dim <= d:
+    if self.params['dim'] is None:
+      self.params['dim'] = d
+    elif not 0 < self.params['dim'] <= d:
       raise ValueError('Invalid embedding dimension, must be in [1,%d]' % d)
 
     Y = np.asanyarray(Y)
@@ -75,41 +78,50 @@ class RCA(BaseMetricLearner):
     inner_cov = np.cov(chunk_data, rowvar=0, bias=1)
 
     # Fisher Linear Discriminant projection
-    if self.dim < d:
+    if self.params['dim'] < d:
       total_cov = np.cov(data[chunk_mask], rowvar=0)
       tmp = np.linalg.lstsq(total_cov, inner_cov)[0]
       vals, vecs = np.linalg.eig(tmp)
-      inds = np.argsort(vals)[:self.dim]
+      inds = np.argsort(vals)[:self.params['dim']]
       A = vecs[:,inds]
       inner_cov = A.T.dot(inner_cov).dot(A)
       self._transformer = _inv_sqrtm(inner_cov).dot(A.T)
     else:
       self._transformer = _inv_sqrtm(inner_cov).T
 
-  @classmethod
-  def prepare_constraints(cls, Y, num_chunks=100, chunk_size=2, seed=None):
-    random.seed(seed)
-    chunks = -np.ones_like(Y, dtype=int)
-    uniq, lookup = np.unique(Y, return_inverse=True)
-    all_inds = [set(np.where(lookup==c)[0]) for c in xrange(len(uniq))]
-    idx = 0
-    while idx < num_chunks and all_inds:
-      c = random.randint(0, len(all_inds)-1)
-      inds = all_inds[c]
-      if len(inds) < chunk_size:
-        del all_inds[c]
-        continue
-      ii = random.sample(inds, chunk_size)
-      inds.difference_update(ii)
-      chunks[ii] = idx
-      idx += 1
-    if idx < num_chunks:
-      raise ValueError('Unable to make %d chunks of %d examples each' %
-                       (num_chunks, chunk_size))
-    return chunks
+    return self
 
 
 def _inv_sqrtm(x):
   '''Computes x^(-1/2)'''
   vals, vecs = np.linalg.eigh(x)
   return (vecs / np.sqrt(vals)).dot(vecs.T)
+
+
+class RCA_Supervised(RCA):
+  def __init__(self, dim=None, num_chunks=100, chunk_size=2):
+    """Initialize the learner.
+
+    Parameters
+    ----------
+    dim : int, optional
+        embedding dimension (default: original dimension of data)
+    num_chunks: int, optional
+    chunk_size: int, optional
+    """
+    RCA.__init__(self, dim=dim)
+    self.params.update(num_chunks=num_chunks, chunk_size=chunk_size)
+
+  def fit(self, X, labels):
+    """Create constraints from labels and learn the RCA model.
+    Needs num_constraints specified in constructor.
+
+    Parameters
+    ----------
+    X : (n x d) data matrix
+        each row corresponds to a single instance
+    labels : (n) data labels
+    """
+    chunks = Constraints(labels).chunks(num_chunks=self.params['num_chunks'],
+                                        chunk_size=self.params['chunk_size'])
+    return RCA.fit(self, X, chunks)

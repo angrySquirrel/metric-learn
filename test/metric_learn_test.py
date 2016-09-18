@@ -1,12 +1,13 @@
 import unittest
 import numpy as np
-import scipy.sparse
 from six.moves import xrange
 from sklearn.metrics import pairwise_distances
 from sklearn.datasets import load_iris
 from numpy.testing import assert_array_almost_equal
 
-from metric_learn import LSML, ITML, LMNN, SDML, NCA, LFDA, RCA
+from metric_learn import (
+    LMNN, NCA, LFDA, Covariance,
+    LSML_Supervised, ITML_Supervised, SDML_Supervised, RCA_Supervised)
 # Import this specially for testing.
 from metric_learn.lmnn import python_LMNN
 
@@ -31,12 +32,20 @@ class MetricTestCase(unittest.TestCase):
     np.random.seed(1234)
 
 
+class TestCovariance(MetricTestCase):
+  def test_iris(self):
+    cov = Covariance()
+    cov.fit(self.iris_points)
+
+    csep = class_separation(cov.transform(), self.iris_labels)
+    # deterministic result
+    self.assertAlmostEqual(csep, 0.73068122)
+
+
 class TestLSML(MetricTestCase):
   def test_iris(self):
-    num_constraints = 200
-
-    C = LSML.prepare_constraints(self.iris_labels, num_constraints)
-    lsml = LSML().fit(self.iris_points, C, verbose=False)
+    lsml = LSML_Supervised(num_constraints=200)
+    lsml.fit(self.iris_points, self.iris_labels)
 
     csep = class_separation(lsml.transform(), self.iris_labels)
     self.assertLess(csep, 0.8)  # it's pretty terrible
@@ -44,11 +53,8 @@ class TestLSML(MetricTestCase):
 
 class TestITML(MetricTestCase):
   def test_iris(self):
-    num_constraints = 200
-
-    n = self.iris_points.shape[0]
-    C = ITML.prepare_constraints(self.iris_labels, n, num_constraints)
-    itml = ITML().fit(self.iris_points, C, verbose=False)
+    itml = ITML_Supervised(num_constraints=200)
+    itml.fit(self.iris_points, self.iris_labels)
 
     csep = class_separation(itml.transform(), self.iris_labels)
     self.assertLess(csep, 0.4)  # it's not great
@@ -56,12 +62,10 @@ class TestITML(MetricTestCase):
 
 class TestLMNN(MetricTestCase):
   def test_iris(self):
-    k = 5
-
     # Test both impls, if available.
     for LMNN_cls in set((LMNN, python_LMNN)):
-      lmnn = LMNN_cls(k=k, learn_rate=1e-6)
-      lmnn.fit(self.iris_points, self.iris_labels, verbose=False)
+      lmnn = LMNN_cls(k=5, learn_rate=1e-6, verbose=False)
+      lmnn.fit(self.iris_points, self.iris_labels)
 
       csep = class_separation(lmnn.transform(), self.iris_labels)
       self.assertLess(csep, 0.25)
@@ -69,19 +73,14 @@ class TestLMNN(MetricTestCase):
 
 class TestSDML(MetricTestCase):
   def test_iris(self):
-    num_constraints = 1500
-
-    n = self.iris_points.shape[0]
     # Note: this is a flaky test, which fails for certain seeds.
     # TODO: un-flake it!
     np.random.seed(5555)
-    W = SDML.prepare_constraints(self.iris_labels, n, num_constraints)
 
-    # Test sparse graph inputs.
-    for graph in ((W, scipy.sparse.csr_matrix(W))):
-      sdml = SDML().fit(self.iris_points, graph)
-      csep = class_separation(sdml.transform(), self.iris_labels)
-      self.assertLess(csep, 0.25)
+    sdml = SDML_Supervised(num_constraints=1500)
+    sdml.fit(self.iris_points, self.iris_labels)
+    csep = class_separation(sdml.transform(), self.iris_labels)
+    self.assertLess(csep, 0.25)
 
 
 class TestNCA(MetricTestCase):
@@ -109,10 +108,8 @@ class TestLFDA(MetricTestCase):
 
 class TestRCA(MetricTestCase):
   def test_iris(self):
-    rca = RCA(dim=2)
-    chunks = RCA.prepare_constraints(self.iris_labels, num_chunks=30,
-                                     chunk_size=2, seed=1234)
-    rca.fit(self.iris_points, chunks)
+    rca = RCA_Supervised(dim=2, num_chunks=30, chunk_size=2)
+    rca.fit(self.iris_points, self.iris_labels)
     csep = class_separation(rca.transform(), self.iris_labels)
     self.assertLess(csep, 0.25)
 
